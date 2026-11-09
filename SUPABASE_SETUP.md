@@ -23,7 +23,7 @@ Create `.env.local` in the project root using `.env.example`:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
 ```
 
 Never add a Supabase `service_role` key to this project or to a browser-exposed environment variable.
