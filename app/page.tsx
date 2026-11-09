@@ -56,6 +56,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type PageKey =
   | "dashboard"
@@ -179,9 +180,30 @@ type StudentAccount = {
   createdAt: string;
 };
 
+type AuthResult = {
+  ok: boolean;
+  message?: string;
+  requiresConfirmation?: boolean;
+};
+
+type RemoteStudentRow = {
+  id: string;
+  email: string;
+  name: string;
+  matric: string;
+  department: string;
+  faculty: string;
+  level: string;
+  phone: string;
+  bio: string;
+  portal_data: unknown;
+  created_at: string;
+};
+
 const STORAGE_KEY = "northbridge-portal-state";
 const AUTH_KEY = "northbridge-portal-auth";
 const STUDENTS_KEY = "northbridge-portal-students";
+const ADMIN_EMAIL = "admin@northbridge.edu";
 
 const initialProfile: Profile = {
   name: "Amara Okafor",
@@ -583,6 +605,44 @@ function createEmptyStudentData(
     creditsCompleted: 0,
     totalCredits: 0,
     studentPassword,
+  };
+}
+
+function toRemotePortalData(data: PortalData): PortalData {
+  return {
+    ...data,
+    // Supabase Auth owns passwords. Never put a password in portal_data.
+    studentPassword: "",
+  };
+}
+
+function studentFromRemoteRow(row: RemoteStudentRow): StudentAccount {
+  const storedData =
+    row.portal_data && typeof row.portal_data === "object"
+      ? (row.portal_data as Partial<PortalData>)
+      : {};
+  const profile: Profile = {
+    ...initialProfile,
+    ...(storedData.profile || {}),
+    name: row.name,
+    matric: row.matric,
+    department: row.department,
+    faculty: row.faculty,
+    level: row.level,
+    email: row.email,
+    phone: row.phone,
+    bio: row.bio,
+  };
+  return {
+    id: row.id,
+    email: row.email,
+    password: "",
+    data: normalizePortalData({
+      ...storedData,
+      profile,
+      studentPassword: "",
+    }),
+    createdAt: row.created_at,
   };
 }
 
@@ -3240,6 +3300,7 @@ function AdminPanel({
   onUpdate,
   onLogout,
   showToast,
+  cloudMode,
 }: {
   data: PortalData;
   students: StudentAccount[];
@@ -3248,6 +3309,7 @@ function AdminPanel({
   onUpdate: (patch: Partial<PortalData>) => void;
   onLogout: () => void;
   showToast: (message: string) => void;
+  cloudMode: boolean;
 }) {
   const [section, setSection] = useState<AdminSection>("overview");
   const [scheduleTab, setScheduleTab] = useState<"classes" | "exams">(
@@ -3534,7 +3596,7 @@ function AdminPanel({
                 />
               </div>
               <p className="mt-4 text-[11px] leading-5 text-slate-400">
-                Changes are saved immediately to localStorage and reflected in
+                Changes are saved immediately to {cloudMode ? "the shared database" : "this browser"} and reflected in
                 the student portal when you switch back to Student view.
               </p>
             </section>
@@ -3617,12 +3679,21 @@ function AdminPanel({
                 onUpdate({ profile: { ...data.profile, email: value } })
               }
             />
-            <AdminInput
-              label="Login password"
-              type="text"
-              value={data.studentPassword}
-              onChange={(value) => onUpdate({ studentPassword: value })}
-            />
+            {cloudMode ? (
+              <div className="rounded-xl border border-[#e5eaff] bg-[#f7f9ff] p-3 text-[11px] leading-5 text-slate-500 sm:col-span-2">
+                <span className="font-bold text-ink">Login password</span>
+                <br />
+                Passwords are securely managed by Supabase Auth and are never
+                displayed or stored in the student record.
+              </div>
+            ) : (
+              <AdminInput
+                label="Login password"
+                type="text"
+                value={data.studentPassword}
+                onChange={(value) => onUpdate({ studentPassword: value })}
+              />
+            )}
             <AdminInput
               label="Phone"
               value={data.profile.phone}
@@ -4602,14 +4673,14 @@ function LoginPage({
   onLogin,
   onSignup,
 }: {
-  onLogin: (email: string, password: string) => boolean;
+  onLogin: (email: string, password: string) => Promise<AuthResult>;
   onSignup: (account: {
     name: string;
     email: string;
     password: string;
     department: string;
     level: string;
-  }) => boolean;
+  }) => Promise<AuthResult>;
 }) {
   const [authView, setAuthView] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
@@ -4625,11 +4696,13 @@ function LoginPage({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
+    setSuccess("");
 
     if (authView === "signup") {
       if (
@@ -4650,18 +4723,23 @@ function LoginPage({
         return;
       }
       setIsSubmitting(true);
-      window.setTimeout(() => {
-        const success = onSignup({
+      window.setTimeout(async () => {
+        const result = await onSignup({
           name: signupName.trim(),
           email: signupEmail.trim(),
           password: signupPassword,
           department: signupDepartment,
           level: signupLevel,
         });
-        if (!success) {
-          setError("That email is already in use. Try another student email.");
-          setIsSubmitting(false);
+        if (!result.ok) {
+          setError(result.message || "That email is already in use. Try another student email.");
+        } else if (result.requiresConfirmation) {
+          setSuccess(result.message || "Check your email to confirm your account, then sign in.");
+          setAuthView("login");
+          setEmail(signupEmail.trim());
+          setPassword("");
         }
+        setIsSubmitting(false);
       }, 450);
       return;
     }
@@ -4671,14 +4749,15 @@ function LoginPage({
       return;
     }
     setIsSubmitting(true);
-    window.setTimeout(() => {
-      const success = onLogin(email.trim(), password);
-      if (!success) {
-        setError("That email or password is incorrect. Create an account if you are a new student.");
-        setIsSubmitting(false);
-        return;
+    window.setTimeout(async () => {
+      const result = await onLogin(email.trim(), password);
+      if (!result.ok) {
+        setError(result.message || "That email or password is incorrect. Create an account if you are a new student.");
       }
-      if (!rememberMe) window.localStorage.removeItem(AUTH_KEY);
+      if (result.ok && !rememberMe && !isSupabaseConfigured) {
+        window.localStorage.removeItem(AUTH_KEY);
+      }
+      setIsSubmitting(false);
     }, 450);
   };
 
@@ -4952,6 +5031,16 @@ function LoginPage({
               </div>
             )}
 
+            {success && (
+              <div
+                className="flex items-start gap-2 rounded-xl border border-[#c9efd9] bg-[#f2fff7] px-3.5 py-3 text-xs font-medium leading-5 text-[#197348]"
+                role="status"
+              >
+                <CircleCheck size={16} className="mt-0.5 shrink-0" />
+                <span>{success}</span>
+              </div>
+            )}
+
             {authView === "login" ? (
               <div className="flex items-center justify-between gap-3">
                 <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
@@ -4972,8 +5061,9 @@ function LoginPage({
               </div>
             ) : (
               <p className="text-[11px] leading-5 text-slate-500">
-                Your account details are saved in this browser for this portal
-                prototype.
+                {isSupabaseConfigured
+                  ? "Your account works on any device after email confirmation."
+                  : "Your account details are saved in this browser for this portal prototype."}
               </p>
             )}
 
@@ -5010,6 +5100,7 @@ function LoginPage({
                 onClick={() => {
                   setAuthView("signup");
                   setError("");
+                  setSuccess("");
                 }}
                 className="mt-4 text-[11px] font-bold text-royal hover:underline"
               >
@@ -5022,6 +5113,7 @@ function LoginPage({
               onClick={() => {
                 setAuthView("login");
                 setError("");
+                setSuccess("");
               }}
               className="mt-7 block w-full text-center text-[11px] font-bold text-royal hover:underline"
             >
@@ -5078,78 +5170,129 @@ export default function Home() {
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
-    let loadedData = initialPortalData;
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Partial<PortalData>;
-        loadedData = normalizePortalData(parsed);
-      } catch {
-        /* Keep the demo defaults if local storage is malformed. */
-      }
-    }
-    setData(loadedData);
+    let cancelled = false;
 
-    let loadedStudents: StudentAccount[] = [];
-    const savedStudents = window.localStorage.getItem(STUDENTS_KEY);
-    if (savedStudents) {
-      try {
-        const parsedStudents = JSON.parse(savedStudents) as StudentAccount[];
-        if (Array.isArray(parsedStudents)) {
-          loadedStudents = parsedStudents.filter(
-            (student) =>
-              student &&
-              typeof student.id === "string" &&
-              typeof student.email === "string" &&
-              typeof student.password === "string" &&
-              student.data,
-          );
+    const loadPortal = async () => {
+      if (isSupabaseConfigured && supabase) {
+        const { data: sessionResult } = await supabase.auth.getSession();
+        const session = sessionResult.session;
+        if (!session) {
+          if (!cancelled) {
+            setData(initialPortalData);
+            setStudents([]);
+            setIsAdmin(false);
+            setIsAuthenticated(false);
+            setAuthReady(true);
+          }
+          return;
         }
-      } catch {
-        /* Start with an empty student list if the saved list is malformed. */
+
+        const signedInEmail = (session.user.email || "").toLowerCase();
+        const adminAuth = signedInEmail === ADMIN_EMAIL;
+        const query = supabase
+          .from("student_profiles")
+          .select("*")
+          .order("created_at", { ascending: false });
+        const result = adminAuth
+          ? await query
+          : await query.eq("id", session.user.id);
+        const remoteRows = (result.data || []) as RemoteStudentRow[];
+        const remoteStudents = remoteRows.map(studentFromRemoteRow);
+        const selected = adminAuth
+          ? remoteStudents[0]
+          : remoteStudents.find((student) => student.id === session.user.id);
+
+        if (!cancelled) {
+          setStudents(remoteStudents);
+          setIsAdmin(adminAuth);
+          setIsAuthenticated(Boolean(selected) || adminAuth);
+          if (selected) {
+            setSelectedStudentId(selected.id);
+            setData(selected.data);
+          }
+          setAuthReady(true);
+        }
+        return;
       }
-    }
 
-    if (!loadedStudents.length && loadedData.studentPassword) {
-      const migratedStudent: StudentAccount = {
-        id: `student-${Date.now()}`,
-        email: loadedData.profile.email,
-        password: loadedData.studentPassword,
-        data: loadedData,
-        createdAt: new Date().toISOString(),
-      };
-      loadedStudents = [migratedStudent];
-      window.localStorage.setItem(STUDENTS_KEY, JSON.stringify(loadedStudents));
-    }
-    setStudents(loadedStudents);
+      let loadedData = initialPortalData;
+      const saved = window.localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved) as Partial<PortalData>;
+          loadedData = normalizePortalData(parsed);
+        } catch {
+          /* Keep the demo defaults if local storage is malformed. */
+        }
+      }
+      setData(loadedData);
 
-    const authValue = window.localStorage.getItem(AUTH_KEY);
-    const isAdminAuth = authValue === "admin";
-    const isStudentAuth =
-      authValue === "true" ||
-      authValue === "student" ||
-      Boolean(authValue?.startsWith("student:"));
-    const requestedStudentId = authValue?.startsWith("student:")
-      ? authValue.slice("student:".length)
-      : "";
-    const signedInStudent =
-      loadedStudents.find((student) => student.id === requestedStudentId) ||
-      loadedStudents[0];
-    const initialSelectedStudent =
-      isStudentAuth && signedInStudent
-        ? signedInStudent
-        : isAdminAuth
-          ? loadedStudents[0]
-          : undefined;
-    if (initialSelectedStudent) {
-      setSelectedStudentId(initialSelectedStudent.id);
-      setData(initialSelectedStudent.data);
-    }
-    setIsAdmin(isAdminAuth);
-    setIsAuthenticated(
-      isAdminAuth || Boolean(isStudentAuth && signedInStudent),
-    );
-    setAuthReady(true);
+      let loadedStudents: StudentAccount[] = [];
+      const savedStudents = window.localStorage.getItem(STUDENTS_KEY);
+      if (savedStudents) {
+        try {
+          const parsedStudents = JSON.parse(savedStudents) as StudentAccount[];
+          if (Array.isArray(parsedStudents)) {
+            loadedStudents = parsedStudents.filter(
+              (student) =>
+                student &&
+                typeof student.id === "string" &&
+                typeof student.email === "string" &&
+                typeof student.password === "string" &&
+                student.data,
+            );
+          }
+        } catch {
+          /* Start with an empty student list if the saved list is malformed. */
+        }
+      }
+
+      if (!loadedStudents.length && loadedData.studentPassword) {
+        const migratedStudent: StudentAccount = {
+          id: `student-${Date.now()}`,
+          email: loadedData.profile.email,
+          password: loadedData.studentPassword,
+          data: loadedData,
+          createdAt: new Date().toISOString(),
+        };
+        loadedStudents = [migratedStudent];
+        window.localStorage.setItem(STUDENTS_KEY, JSON.stringify(loadedStudents));
+      }
+      setStudents(loadedStudents);
+
+      const authValue = window.localStorage.getItem(AUTH_KEY);
+      const isAdminAuth = authValue === "admin";
+      const isStudentAuth =
+        authValue === "true" ||
+        authValue === "student" ||
+        Boolean(authValue?.startsWith("student:"));
+      const requestedStudentId = authValue?.startsWith("student:")
+        ? authValue.slice("student:".length)
+        : "";
+      const signedInStudent =
+        loadedStudents.find((student) => student.id === requestedStudentId) ||
+        loadedStudents[0];
+      const initialSelectedStudent =
+        isStudentAuth && signedInStudent
+          ? signedInStudent
+          : isAdminAuth
+            ? loadedStudents[0]
+            : undefined;
+      if (initialSelectedStudent) {
+        setSelectedStudentId(initialSelectedStudent.id);
+        setData(initialSelectedStudent.data);
+      }
+      setIsAdmin(isAdminAuth);
+      setIsAuthenticated(
+        isAdminAuth || Boolean(isStudentAuth && signedInStudent),
+      );
+      setAuthReady(true);
+    };
+
+    void loadPortal();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const showToast = (message: string) => {
@@ -5164,25 +5307,57 @@ export default function Home() {
   const updateData = (patch: Partial<PortalData>) => {
     setData((current) => {
       const next = { ...current, ...patch };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      if (selectedStudentId) {
-        setStudents((currentStudents) => {
-          const nextStudents = currentStudents.map((student) =>
+      if (isSupabaseConfigured && supabase && selectedStudentId) {
+        const existingStudent = students.find(
+          (student) => student.id === selectedStudentId,
+        );
+        void supabase
+          .from("student_profiles")
+          .update({
+            // Supabase Auth remains the source of truth for login email.
+            email: existingStudent?.email || next.profile.email,
+            name: next.profile.name,
+            matric: next.profile.matric,
+            department: next.profile.department,
+            faculty: next.profile.faculty,
+            level: next.profile.level,
+            phone: next.profile.phone,
+            bio: next.profile.bio,
+            portal_data: toRemotePortalData(next),
+          })
+          .eq("id", selectedStudentId);
+        setStudents((currentStudents) =>
+          currentStudents.map((student) =>
             student.id === selectedStudentId
               ? {
                   ...student,
-                  email: next.profile.email,
-                  password: next.studentPassword,
                   data: next,
+                  email: existingStudent?.email || student.email,
                 }
               : student,
-          );
-          window.localStorage.setItem(
-            STUDENTS_KEY,
-            JSON.stringify(nextStudents),
-          );
-          return nextStudents;
-        });
+          ),
+        );
+      } else {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        if (selectedStudentId) {
+          setStudents((currentStudents) => {
+            const nextStudents = currentStudents.map((student) =>
+              student.id === selectedStudentId
+                ? {
+                    ...student,
+                    email: next.profile.email,
+                    password: next.studentPassword,
+                    data: next,
+                  }
+                : student,
+            );
+            window.localStorage.setItem(
+              STUDENTS_KEY,
+              JSON.stringify(nextStudents),
+            );
+            return nextStudents;
+          });
+        }
       }
       return next;
     });
@@ -5192,7 +5367,9 @@ export default function Home() {
     if (!student) return;
     setSelectedStudentId(student.id);
     setData(student.data);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(student.data));
+    if (!isSupabaseConfigured) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(student.data));
+    }
   };
   const setRegisteredCodes = (codes: string[]) => {
     updateData({ registeredCodes: codes });
@@ -5201,16 +5378,64 @@ export default function Home() {
     updateData({ notices: next });
   };
   const logout = () => {
-    window.localStorage.removeItem(AUTH_KEY);
+    if (isSupabaseConfigured && supabase) {
+      void supabase.auth.signOut();
+    } else {
+      window.localStorage.removeItem(AUTH_KEY);
+    }
     setSidebarOpen(false);
     setIsAdmin(false);
     setIsAuthenticated(false);
     setSelectedStudentId(null);
   };
-  const login = (email: string, password: string) => {
+  const login = async (
+    email: string,
+    password: string,
+  ): Promise<AuthResult> => {
     const normalizedEmail = email.trim().toLowerCase();
+    if (isSupabaseConfigured && supabase) {
+      const { data: authData, error } =
+        await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
+      if (error || !authData.user) {
+        return {
+          ok: false,
+          message:
+            error?.message === "Email not confirmed"
+              ? "Confirm your email address before signing in."
+              : "That email or password is incorrect. Check your details and try again.",
+        };
+      }
+
+      const adminCredentials = normalizedEmail === ADMIN_EMAIL;
+      const query = supabase
+        .from("student_profiles")
+        .select("*")
+        .order("created_at", { ascending: false });
+      const result = adminCredentials
+        ? await query
+        : await query.eq("id", authData.user.id);
+      const remoteStudents = ((result.data || []) as RemoteStudentRow[]).map(
+        studentFromRemoteRow,
+      );
+      const selected = adminCredentials
+        ? remoteStudents[0]
+        : remoteStudents.find((student) => student.id === authData.user.id);
+      setStudents(remoteStudents);
+      setIsAdmin(adminCredentials);
+      setIsAuthenticated(Boolean(selected) || adminCredentials);
+      if (selected) {
+        setSelectedStudentId(selected.id);
+        setData(selected.data);
+      }
+      setActivePage("dashboard");
+      return { ok: true };
+    }
+
     const adminCredentials =
-      normalizedEmail === "admin@northbridge.edu" && password === "admin123";
+      normalizedEmail === ADMIN_EMAIL && password === "admin123";
     if (adminCredentials) {
       const firstStudent = students[0];
       window.localStorage.setItem(AUTH_KEY, "admin");
@@ -5221,7 +5446,7 @@ export default function Home() {
         setData(firstStudent.data);
       }
       setActivePage("dashboard");
-      return true;
+      return { ok: true };
     }
 
     const student = students.find(
@@ -5229,29 +5454,42 @@ export default function Home() {
         item.email.toLowerCase() === normalizedEmail &&
         item.password === password,
     );
-    if (!student) return false;
+    if (!student) {
+      return {
+        ok: false,
+        message:
+          "That email or password is incorrect. Create an account if you are a new student.",
+      };
+    }
     window.localStorage.setItem(AUTH_KEY, `student:${student.id}`);
     setSelectedStudentId(student.id);
     setData(student.data);
     setIsAdmin(false);
     setIsAuthenticated(true);
     setActivePage("dashboard");
-    return true;
+    return { ok: true };
   };
-  const signup = (account: {
+  const signup = async (account: {
     name: string;
     email: string;
     password: string;
     department: string;
     level: string;
-  }) => {
+  }): Promise<AuthResult> => {
     const email = account.email.trim().toLowerCase();
     if (
       !email ||
-      email === "admin@northbridge.edu" ||
-      students.some((student) => student.email.toLowerCase() === email)
+      email === ADMIN_EMAIL ||
+      (!isSupabaseConfigured &&
+        students.some((student) => student.email.toLowerCase() === email))
     ) {
-      return false;
+      return {
+        ok: false,
+        message:
+          email === ADMIN_EMAIL
+            ? "That email is reserved for the portal administrator."
+            : "That email is already in use. Try another student email.",
+      };
     }
 
     const faculty =
@@ -5274,6 +5512,75 @@ export default function Home() {
     };
     const studentId = `student-${Date.now()}`;
     const nextData = createEmptyStudentData(nextProfile, account.password);
+
+    if (isSupabaseConfigured && supabase) {
+      const { data: authData, error } = await supabase.auth.signUp({
+        email,
+        password: account.password,
+        options: {
+          data: {
+            name: nextProfile.name,
+            matric: nextProfile.matric,
+            department: nextProfile.department,
+            faculty: nextProfile.faculty,
+            level: nextProfile.level,
+            phone: nextProfile.phone,
+            bio: nextProfile.bio,
+            portalData: toRemotePortalData(nextData),
+          },
+        },
+      });
+      if (error || !authData.user) {
+        return {
+          ok: false,
+          message:
+            error?.message || "We could not create your account. Please try again.",
+        };
+      }
+
+      if (!authData.session) {
+        return {
+          ok: true,
+          requiresConfirmation: true,
+          message:
+            "Account created. Check your email to confirm your account, then sign in.",
+        };
+      }
+
+      const row = {
+        id: authData.user.id,
+        email,
+        name: nextProfile.name,
+        matric: nextProfile.matric,
+        department: nextProfile.department,
+        faculty: nextProfile.faculty,
+        level: nextProfile.level,
+        phone: nextProfile.phone,
+        bio: nextProfile.bio,
+        portal_data: toRemotePortalData(nextData),
+      };
+      const { data: savedRow, error: profileError } = await supabase
+        .from("student_profiles")
+        .upsert(row, { onConflict: "id" })
+        .select("*")
+        .single();
+      if (profileError || !savedRow) {
+        return {
+          ok: false,
+          message:
+            "Your login was created, but the student profile could not be saved. Run the Supabase schema and try again.",
+        };
+      }
+      const nextStudent = studentFromRemoteRow(savedRow as RemoteStudentRow);
+      setStudents([nextStudent]);
+      setData(nextStudent.data);
+      setSelectedStudentId(nextStudent.id);
+      setIsAdmin(false);
+      setIsAuthenticated(true);
+      setActivePage("dashboard");
+      return { ok: true };
+    }
+
     const nextStudent: StudentAccount = {
       id: studentId,
       email,
@@ -5291,7 +5598,7 @@ export default function Home() {
     setIsAdmin(false);
     setIsAuthenticated(true);
     setActivePage("dashboard");
-    return true;
+    return { ok: true };
   };
 
   if (!authReady) {
@@ -5323,6 +5630,7 @@ export default function Home() {
         onUpdate={updateData}
         onLogout={logout}
         showToast={showToast}
+        cloudMode={isSupabaseConfigured}
       />
     );
   }
