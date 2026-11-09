@@ -35,3 +35,7 @@ In the Vercel project, open **Settings → Environment Variables** and add both 
 After deployment, students can sign up from any phone using the public Vercel URL. Their account and empty portal record will appear in the admin's **Student directory** on the next login/refresh.
 
 If email confirmation is enabled in Supabase, students must click the confirmation link before their first login. This is recommended for a real deployment.
+
+## Troubleshooting Vercel middleware errors
+
+If Vercel shows `500 MIDDLEWARE_INVOCATION_FAILED`, check that both environment variables are present in the Vercel project and that a new deployment was created after saving them. The middleware now safely skips Supabase session refresh when variables are missing, but the variables are still required for shared student accounts and admin editing.
