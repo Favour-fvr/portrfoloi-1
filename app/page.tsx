@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
   ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
@@ -560,6 +561,31 @@ const initialPortalData: PortalData = {
   studentPassword: "",
 };
 
+function createEmptyStudentData(
+  profile: Profile,
+  studentPassword: string,
+): PortalData {
+  return {
+    profile,
+    courses: [],
+    registeredCodes: [],
+    results: [],
+    notices: [],
+    announcements: [],
+    examSchedule: [],
+    timetable: [],
+    fees: [],
+    payments: [],
+    session: "",
+    semester: "",
+    gpa: "",
+    cgpa: "",
+    creditsCompleted: 0,
+    totalCredits: 0,
+    studentPassword,
+  };
+}
+
 const navGroups: {
   label: string;
   items: { key: PageKey; label: string; icon: LucideIcon }[];
@@ -1029,6 +1055,10 @@ function DashboardPage({
     0,
   );
   const nextExam = data.examSchedule[0];
+  const hasGpaData = data.results.length > 0 || Boolean(data.gpa);
+  const degreeProgress = data.totalCredits
+    ? Math.round((data.creditsCompleted / data.totalCredits) * 100)
+    : 0;
   return (
     <div className="page-enter space-y-5">
       <section className="gradient-hero grid overflow-hidden rounded-3xl text-white shadow-soft lg:grid-cols-[1.45fr_.75fr]">
@@ -1071,11 +1101,13 @@ function DashboardPage({
             <p className="text-[11px] font-semibold text-blue-100">
               Current academic session
             </p>
-            <p className="mt-2 text-xl font-bold">{data.session}</p>
+            <p className="mt-2 text-xl font-bold">
+              {data.session || "Not set"}
+            </p>
             <div className="mt-5 flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-[#6ee7a1]" />
               <span className="text-xs text-blue-100">
-                {data.semester} in progress
+                {data.semester || "Semester not set"}
               </span>
             </div>
           </div>
@@ -1092,7 +1124,7 @@ function DashboardPage({
         <DashboardCard
           icon={Award}
           label="Cumulative GPA"
-          value={`${data.cgpa} / 5.00`}
+          value={data.cgpa ? `${data.cgpa} / 5.00` : "—"}
           detail="↑ 0.18 from last semester"
           tone="blue"
         />
@@ -1108,13 +1140,15 @@ function DashboardPage({
           icon={CircleDollarSign}
           label="Outstanding fees"
           value={`₦${outstandingFees.toLocaleString()}`}
-          detail="Payment deadline · Jun 02"
+          detail={
+            data.fees.length ? "Current outstanding balance" : "No fees assessed"
+          }
           tone="orange"
         />
         <DashboardCard
           icon={CalendarClock}
           label="Next examination"
-          value="12 days"
+          value={nextExam ? "Upcoming" : "—"}
           detail={
             nextExam
               ? `${nextExam.code} · ${nextExam.date}, ${nextExam.time.split("–")[0].trim()}`
@@ -1139,12 +1173,20 @@ function DashboardPage({
           />
           <div className="mb-4 flex items-end gap-3">
             <p className="text-3xl font-extrabold tracking-[-.05em] text-ink">
-              {data.gpa}
+              {data.gpa || "—"}
             </p>
-            <StatusPill tone="green">
-              <TrendingUp size={12} /> +0.18 this term
+            <StatusPill tone={hasGpaData ? "green" : "slate"}>
+              {hasGpaData ? (
+                <>
+                  <TrendingUp size={12} /> Current GPA
+                </>
+              ) : (
+                "No results yet"
+              )}
             </StatusPill>
           </div>
+          {hasGpaData ? (
+            <>
           <div className="relative h-44">
             <div className="absolute inset-0 flex flex-col justify-between">
               <span className="border-t border-dashed border-[#edf0f5] text-[9px] text-slate-300">
@@ -1197,6 +1239,14 @@ function DashboardPage({
             <span>Year 3</span>
             <span className="text-royal">Year 4</span>
           </div>
+            </>
+          ) : (
+            <EmptyState
+              icon={TrendingUp}
+              title="No GPA history yet"
+              text="Your GPA chart will appear after academic results are published."
+            />
+          )}
         </section>
         <section className="rounded-2xl border border-line bg-white p-5 shadow-card sm:p-6">
           <SectionTitle
@@ -1216,7 +1266,7 @@ function DashboardPage({
             <div className="ring-chart relative flex h-32 w-32 shrink-0 items-center justify-center rounded-full">
               <div className="relative z-10 text-center">
                 <p className="text-[25px] font-extrabold tracking-[-.05em] text-ink">
-                  82%
+                  {degreeProgress}%
                 </p>
                 <p className="text-[10px] font-medium text-slate-400">
                   completed
@@ -1236,12 +1286,16 @@ function DashboardPage({
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-royal" />
                   Core courses{" "}
-                  <span className="ml-auto font-bold text-ink">14 / 18</span>
+                  <span className="ml-auto font-bold text-ink">
+                    {data.courses.length ? "Set by admin" : "—"}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-[#dfe6ff]" />
                   Electives{" "}
-                  <span className="ml-auto font-bold text-ink">6 / 8</span>
+                  <span className="ml-auto font-bold text-ink">
+                    {data.courses.length ? "Set by admin" : "—"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1250,11 +1304,18 @@ function DashboardPage({
             <div className="flex items-center gap-2">
               <CircleCheck size={15} className="text-[#198754]" />
               <p className="text-[11px] font-bold text-ink">
-                You&apos;re on track to graduate
+                {data.totalCredits
+                  ? "You're on track to graduate"
+                  : "Academic progress not set"}
               </p>
             </div>
             <p className="mt-1 pl-5 text-[10px] leading-4 text-slate-500">
-              Keep your current pace and complete 24 more units.
+              {data.totalCredits
+                ? `Keep your current pace and complete ${Math.max(
+                    data.totalCredits - data.creditsCompleted,
+                    0,
+                  )} more units.`
+                : "Your administrator will add your academic plan here."}
             </p>
           </div>
         </section>
@@ -1274,7 +1335,8 @@ function DashboardPage({
             }
           />
           <div className="space-y-2">
-            {data.examSchedule.slice(0, 3).map((exam, index) => (
+            {data.examSchedule.length ? (
+              data.examSchedule.slice(0, 3).map((exam, index) => (
               <div
                 key={exam.code}
                 className="flex items-center gap-3 rounded-xl border border-[#edf0f5] p-3 transition hover:border-[#cbd6ff] hover:bg-[#fbfcff]"
@@ -1311,7 +1373,14 @@ function DashboardPage({
                   {index === 0 ? "Soon" : "Upcoming"}
                 </StatusPill>
               </div>
-            ))}
+              ))
+            ) : (
+              <EmptyState
+                icon={CalendarClock}
+                title="No examinations scheduled"
+                text="Your examination timetable will appear here when it is published."
+              />
+            )}
           </div>
         </section>
         <section className="rounded-2xl border border-line bg-white p-5 shadow-card sm:p-6">
@@ -1328,7 +1397,8 @@ function DashboardPage({
             }
           />
           <div className="space-y-4">
-            {data.announcements.slice(0, 3).map((announcement, index) => (
+            {data.announcements.length ? (
+              data.announcements.slice(0, 3).map((announcement, index) => (
               <button
                 key={announcement.id}
                 onClick={() => onNavigate("announcements")}
@@ -1359,7 +1429,14 @@ function DashboardPage({
                   className="mt-1 shrink-0 text-slate-300 group-hover:text-royal"
                 />
               </button>
-            ))}
+              ))
+            ) : (
+              <EmptyState
+                icon={Megaphone}
+                title="No announcements yet"
+                text="New university announcements will appear here."
+              />
+            )}
           </div>
         </section>
       </div>
@@ -1377,7 +1454,8 @@ function DashboardPage({
           }
         />
         <div className="grid gap-2 md:grid-cols-3">
-          {[
+          {data.registeredCodes.length || data.payments.length || data.results.length ? (
+          [
             {
               icon: CheckCircle2,
               title: "Registration draft saved",
@@ -1424,7 +1502,14 @@ function DashboardPage({
                 {item.time}
               </span>
             </div>
-          ))}
+          ))
+          ) : (
+            <EmptyState
+              icon={Activity}
+              title="No recent activity"
+              text="Your portal activity will appear here after records are added."
+            />
+          )}
         </div>
       </section>
     </div>
@@ -1847,6 +1932,15 @@ function CourseRegistrationPage({
 }
 
 function ResultTable({ results }: { results: Result[] }) {
+  if (!results.length) {
+    return (
+      <EmptyState
+        icon={GraduationCap}
+        title="No academic results yet"
+        text="Your academic results will appear here once they are published by the administrator."
+      />
+    );
+  }
   return (
     <div className="table-scroll">
       <table className="w-full border-collapse text-left">
@@ -1901,7 +1995,7 @@ function ResultsPage({ data }: { data: PortalData }) {
     0,
   );
   const units = data.results.reduce((sum, item) => sum + item.unit, 0);
-  const semesterGpa = (weighted / units).toFixed(2);
+  const semesterGpa = units ? (weighted / units).toFixed(2) : "—";
   return (
     <div className="page-enter space-y-5">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -1931,15 +2025,19 @@ function ResultsPage({ data }: { data: PortalData }) {
         <DashboardCard
           icon={Award}
           label="Cumulative GPA"
-          value={`${data.cgpa} / 5.00`}
-          detail="Excellent standing"
+          value={data.cgpa ? `${data.cgpa} / 5.00` : "—"}
+          detail={data.cgpa ? "Awaiting current standing" : "Not published yet"}
           tone="green"
         />
         <DashboardCard
           icon={BookOpenCheck}
           label="Total credits"
           value={`${data.creditsCompleted} units`}
-          detail={`${data.totalCredits - data.creditsCompleted} units remaining`}
+          detail={
+            data.totalCredits
+              ? `${data.totalCredits - data.creditsCompleted} units remaining`
+              : "Not set yet"
+          }
           tone="purple"
         />
       </div>
@@ -2007,6 +2105,7 @@ function ResultsPage({ data }: { data: PortalData }) {
 }
 
 function TimetablePage({ data }: { data: PortalData }) {
+  const classItems = data.timetable.flatMap((day) => day.items);
   return (
     <div className="page-enter space-y-5">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -2052,7 +2151,8 @@ function TimetablePage({ data }: { data: PortalData }) {
           </button>
         </div>
         <div className="grid gap-3 md:grid-cols-5">
-          {data.timetable.map((day, dayIndex) => (
+          {data.timetable.length ? (
+            data.timetable.map((day, dayIndex) => (
             <div key={day.day} className="min-w-0">
               <div
                 className={cn(
@@ -2105,7 +2205,16 @@ function TimetablePage({ data }: { data: PortalData }) {
                 ))}
               </div>
             </div>
-          ))}
+            ))
+          ) : (
+            <div className="md:col-span-5">
+              <EmptyState
+                icon={CalendarDays}
+                title="No class timetable yet"
+                text="Your class schedule will appear here when it is added by the administrator."
+              />
+            </div>
+          )}
         </div>
       </section>
       <div className="grid gap-4 sm:grid-cols-3">
@@ -2113,23 +2222,29 @@ function TimetablePage({ data }: { data: PortalData }) {
           <p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">
             Classes this week
           </p>
-          <p className="mt-2 text-2xl font-extrabold text-ink">7</p>
-          <p className="mt-1 text-[11px] text-slate-400">Across 5 days</p>
+          <p className="mt-2 text-2xl font-extrabold text-ink">
+            {classItems.length || "—"}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-400">
+            {classItems.length ? "Scheduled classes" : "No classes scheduled"}
+          </p>
         </div>
         <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
           <p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">
             Study blocks
           </p>
-          <p className="mt-2 text-2xl font-extrabold text-ink">12 hrs</p>
+          <p className="mt-2 text-2xl font-extrabold text-ink">—</p>
           <p className="mt-1 text-[11px] text-slate-400">
-            Recommended this week
+            Study plan not set
           </p>
         </div>
         <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
           <p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">
             Next class
           </p>
-          <p className="mt-2 text-2xl font-extrabold text-ink">Tomorrow</p>
+          <p className="mt-2 text-2xl font-extrabold text-ink">
+            {classItems[0] ? classItems[0].time : "—"}
+          </p>
           <p className="mt-1 text-[11px] text-slate-400">CSC 403 · 11:00 AM</p>
         </div>
       </div>
@@ -2152,8 +2267,11 @@ function ExamsPage({ data }: { data: PortalData }) {
             Your examination schedule, venues and preparation checklist.
           </p>
         </div>
-        <StatusPill tone="amber">
-          <Clock3 size={12} /> First paper in 12 days
+        <StatusPill tone={data.examSchedule.length ? "amber" : "slate"}>
+          <Clock3 size={12} />
+          {data.examSchedule.length
+            ? "Upcoming examination"
+            : "No examinations scheduled"}
         </StatusPill>
       </div>
       <section className="rounded-2xl border border-line bg-white p-5 shadow-card sm:p-6">
@@ -2167,7 +2285,8 @@ function ExamsPage({ data }: { data: PortalData }) {
           }
         />
         <div className="space-y-3">
-          {data.examSchedule.map((exam, index) => (
+          {data.examSchedule.length ? (
+            data.examSchedule.map((exam, index) => (
             <div
               key={exam.code}
               className="grid gap-4 rounded-2xl border border-[#edf0f5] p-4 transition hover:border-[#cbd6ff] hover:shadow-sm md:grid-cols-[112px_1fr_auto] md:items-center"
@@ -2214,7 +2333,14 @@ function ExamsPage({ data }: { data: PortalData }) {
                 <CalendarDays size={14} /> Add to calendar
               </button>
             </div>
-          ))}
+            ))
+          ) : (
+            <EmptyState
+              icon={CalendarClock}
+              title="No examination timetable yet"
+              text="Your exam schedule will appear here when it is published by the administrator."
+            />
+          )}
         </div>
       </section>
       <section className="grid gap-4 md:grid-cols-3">
@@ -2286,7 +2412,9 @@ function FeesPage({
               ₦{outstandingFees.toLocaleString()}
             </p>
             <p className="mt-2 text-[11px] text-blue-100">
-              Due by June 02, 2026 · {paymentProgress}% paid
+              {feeItems.length
+                ? `Payment progress · ${paymentProgress}% paid`
+                : "No fee assessment has been added yet"}
             </p>
           </div>
           <div className="w-full sm:max-w-[230px]">
@@ -2313,12 +2441,14 @@ function FeesPage({
         <section className="rounded-2xl border border-line bg-white p-5 shadow-card sm:p-6">
           <div className="mb-4 flex items-center justify-between">
             <SectionTitle eyebrow="Account statement" title="Fee breakdown" />
-            <StatusPill tone="amber">
-              <CircleAlert size={12} /> Partial payment
+            <StatusPill tone={feeItems.length ? "amber" : "slate"}>
+              <CircleAlert size={12} />
+              {feeItems.length ? "Payment status pending" : "No fees assessed"}
             </StatusPill>
           </div>
           <div className="space-y-1">
-            {feeItems.map((fee) => (
+            {feeItems.length ? (
+              feeItems.map((fee) => (
               <div
                 key={fee.label}
                 className="flex items-center justify-between border-b border-[#f0f2f6] py-4 last:border-0"
@@ -2347,7 +2477,14 @@ function FeesPage({
                   </p>
                 </div>
               </div>
-            ))}
+              ))
+            ) : (
+              <EmptyState
+                icon={WalletCards}
+                title="No school fees yet"
+                text="Your fee breakdown will appear here when it is added by the administrator."
+              />
+            )}
           </div>
           <div className="mt-4 flex items-center justify-between rounded-xl bg-[#f7f8fc] p-4">
             <span className="text-xs font-bold text-ink">
@@ -2392,6 +2529,7 @@ function FeesPage({
 
 function PaymentsPage({ data }: { data: PortalData }) {
   const payments = data.payments;
+  const lastPayment = payments[0];
   const totalPaid = payments
     .filter((payment) => payment.status === "Verified")
     .reduce((sum, payment) => sum + payment.amount, 0);
@@ -2418,21 +2556,25 @@ function PaymentsPage({ data }: { data: PortalData }) {
           icon={CircleDollarSign}
           label="Total paid"
           value={`₦${totalPaid.toLocaleString()}`}
-          detail="Across 4 transactions"
+          detail={`Across ${payments.length} transaction${payments.length === 1 ? "" : "s"}`}
           tone="green"
         />
         <DashboardCard
           icon={Clock3}
           label="Last payment"
-          value="May 14, 2026"
-          detail="Tuition fee · ₦150,000"
+          value={lastPayment?.date || "—"}
+          detail={
+            lastPayment
+              ? `${lastPayment.type} · ₦${lastPayment.amount.toLocaleString()}`
+              : "No payments recorded"
+          }
           tone="blue"
         />
         <DashboardCard
           icon={ShieldCheck}
           label="Account status"
-          value="In good standing"
-          detail="Next due · Jun 02, 2026"
+          value={payments.length ? "In good standing" : "No payment history"}
+          detail={payments.length ? "Payment records available" : "Not set yet"}
           tone="purple"
         />
       </div>
@@ -2452,6 +2594,7 @@ function PaymentsPage({ data }: { data: PortalData }) {
           }
         />
         <div className="table-scroll">
+          {payments.length ? (
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-line text-[10px] uppercase tracking-[.13em] text-slate-400">
@@ -2505,6 +2648,13 @@ function PaymentsPage({ data }: { data: PortalData }) {
               ))}
             </tbody>
           </table>
+          ) : (
+            <EmptyState
+              icon={ReceiptText}
+              title="No payment history yet"
+              text="Payment records will appear here after they are added or verified."
+            />
+          )}
         </div>
       </section>
     </div>
@@ -5116,16 +5266,14 @@ export default function Home() {
       department: account.department,
       faculty,
       level: account.level,
+      phone: "",
+      bio: "",
       matric: `NBU/UG/${String(new Date().getFullYear()).slice(-2)}/${String(
         Date.now(),
       ).slice(-4)}`,
     };
     const studentId = `student-${Date.now()}`;
-    const nextData: PortalData = {
-      ...initialPortalData,
-      profile: nextProfile,
-      studentPassword: account.password,
-    };
+    const nextData = createEmptyStudentData(nextProfile, account.password);
     const nextStudent: StudentAccount = {
       id: studentId,
       email,
