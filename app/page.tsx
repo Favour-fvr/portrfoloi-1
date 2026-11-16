@@ -4623,7 +4623,9 @@ function AdminPanel({
         <div className="mt-6 hidden rounded-2xl bg-white/10 p-3.5 lg:block">
           <p className="text-[11px] font-bold">Publishing center</p>
           <p className="mt-1 text-[10px] leading-4 text-blue-100">
-            Edits are saved locally and visible in the student portal.
+            {cloudMode
+              ? "Edits are shared through Supabase and visible to students."
+              : "Cloud database is not connected; edits are saved locally."}
           </p>
         </div>
         <button
@@ -4661,6 +4663,13 @@ function AdminPanel({
             </button>
           </div>
         </header>
+        {!cloudMode && (
+          <div className="border-b border-[#f2d49a] bg-[#fff9eb] px-4 py-3 text-[11px] font-semibold text-[#8a5a00] sm:px-7 lg:px-9">
+            Shared database is not connected. Add the Supabase environment
+            variables to Vercel and redeploy, otherwise accounts will remain
+            on the device where they were created.
+          </div>
+        )}
         <main className="px-4 py-6 sm:px-7 lg:px-9 lg:py-8">
           <div className="mx-auto max-w-[1450px]">{renderEditor()}</div>
         </main>
@@ -5294,6 +5303,46 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin || !isSupabaseConfigured || !supabase) return;
+
+    let cancelled = false;
+    const remoteSupabase = supabase;
+    const refreshStudentDirectory = async () => {
+      const { data: rows, error } = await remoteSupabase
+        .from("student_profiles")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error || cancelled) return;
+
+      const nextStudents = ((rows || []) as RemoteStudentRow[]).map(
+        studentFromRemoteRow,
+      );
+      setStudents(nextStudents);
+      setData((currentData) => {
+        const selected = nextStudents.find(
+          (student) => student.id === selectedStudentId,
+        );
+        return selected ? selected.data : currentData;
+      });
+    };
+
+    void refreshStudentDirectory();
+    const intervalId = window.setInterval(() => {
+      void refreshStudentDirectory();
+    }, 10000);
+    const handleFocus = () => {
+      void refreshStudentDirectory();
+    };
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [isAdmin, selectedStudentId]);
 
   const showToast = (message: string) => {
     setToast(message);
