@@ -12,7 +12,7 @@ The portal uses Supabase's free tier for shared authentication and student recor
 
 In **Authentication → Users**, create a confirmed user with:
 
-- Email: `admin@northbridge.edu`
+- Email: `opixfvr@gmail.com`
 - Password: choose a private admin password
 
 The normal login page is used for this account. There is no separate admin login page. The admin email is recognized by the database security policy and can view/edit every student record.

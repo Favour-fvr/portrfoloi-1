@@ -203,7 +203,7 @@ type RemoteStudentRow = {
 const STORAGE_KEY = "northbridge-portal-state";
 const AUTH_KEY = "northbridge-portal-auth";
 const STUDENTS_KEY = "northbridge-portal-students";
-const ADMIN_EMAIL = "admin@northbridge.edu";
+const ADMIN_EMAIL = "opixfvr@gmail.com";
 
 const initialProfile: Profile = {
   name: "Amara Okafor",

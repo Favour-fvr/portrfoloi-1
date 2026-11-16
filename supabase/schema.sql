@@ -28,7 +28,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select lower(coalesce(auth.jwt() ->> 'email', '')) = 'admin@northbridge.edu';
+  select lower(coalesce(auth.jwt() ->> 'email', '')) = 'opixfvr@gmail.com';
 $$;
 
 create or replace function public.handle_new_user()
@@ -108,6 +108,6 @@ create trigger student_profiles_set_updated_at
 
 -- Admin setup:
 -- In Supabase Dashboard -> Authentication -> Users, create a confirmed user:
--- Email: admin@northbridge.edu
+-- Email: opixfvr@gmail.com
 -- Password: choose your private admin password
 -- The normal portal login page will recognize that email as the admin account.
