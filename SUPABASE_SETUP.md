@@ -22,6 +22,7 @@ The normal login page is used for this account. There is no separate admin login
 Create `.env.local` in the project root using `.env.example`:
 
 ```env
+NEXT_PUBLIC_ENABLE_SUPABASE=true
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
 ```
@@ -35,6 +36,8 @@ In the Vercel project, open **Settings → Environment Variables** and add both 
 After deployment, students can sign up from any phone using the public Vercel URL. Their account and empty portal record will appear in the admin's **Student directory** on the next login/refresh.
 
 If email confirmation is enabled in Supabase, students must click the confirmation link before their first login. This is recommended for a real deployment.
+
+To run the portal without Supabase, leave `NEXT_PUBLIC_ENABLE_SUPABASE=false` or remove the Supabase environment variables. The portal will use browser-local demo storage instead.
 
 ## Troubleshooting Vercel middleware errors
 

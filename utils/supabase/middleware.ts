@@ -5,6 +5,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseEnabled = process.env.NEXT_PUBLIC_ENABLE_SUPABASE === "true";
 
 export const updateSession = async (request: NextRequest) => {
   let supabaseResponse = NextResponse.next({
@@ -15,7 +16,7 @@ export const updateSession = async (request: NextRequest) => {
 
   // Vercel can build the app before environment variables are added. In that
   // case, let the page load instead of crashing the entire middleware layer.
-  if (!supabaseUrl || !supabaseKey) {
+  if (!supabaseEnabled || !supabaseUrl || !supabaseKey) {
     return supabaseResponse;
   }
 
